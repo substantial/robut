@@ -1,4 +1,5 @@
 require 'xmpp4r'
+require 'xmpp4r/delay/x/delay'
 require 'xmpp4r/muc/helper/simplemucclient'
 require 'xmpp4r/roster/helper/roster'
 require 'ostruct'
@@ -36,11 +37,15 @@ class Robut::Connection
   # The roster of currently available people
   attr_accessor :roster
 
+  INITIAL_WARMUP_TIME = 5
+
   class << self
     # Class-level config. This is set by the +configure+ class method,
     # and is used if no configuration is passed to the +initialize+
     # method.
     attr_accessor :config
+    
+    attr_accessor :connection_start_time
   end
 
   # Configures the connection at the class level. When the +robut+ bin
@@ -99,6 +104,7 @@ class Robut::Connection
     
     plugins.each do |plugin|
       begin
+        self.config.logger.info "#{time} #{nick} #{message}"
         rsp = plugin.handle(time, nick, message)
         break if rsp == true
       rescue => e
@@ -117,15 +123,22 @@ class Robut::Connection
   def connect
     client.connect
     client.auth(config.password)
+    
+    Robut::Connection.connection_start_time = Time.now
+    
     client.send(Jabber::Presence.new.set_type(:available))
-
+    
     self.roster = Jabber::Roster::Helper.new(client)
     roster.wait_for_roster
 
     # Add the callback from messages that occur inside the room
     muc.on_message do |time, nick, message|
-      plugins = Robut::Plugin.plugins.map { |p| p.new(self, nil) }
-      handle_message(plugins, time, nick, message)
+      time ||= Time.now
+      
+      if message_is_after_startup_time?(time)
+        plugins = Robut::Plugin.plugins.map { |p| p.new(self, nil) }
+        handle_message(plugins, time, nick, message)
+      end
     end
 
     # Add the callback from direct messages. Turns out the
@@ -133,11 +146,14 @@ class Robut::Connection
     # have to go a little deeper into xmpp4r to get this working.
     client.add_message_callback(200, self) do |message|
       if !muc.from_room?(message.from) && message.type == :chat && message.body
-        time = Time.now # TODO: get real timestamp? Doesn't seem like
-                        # jabber gives it to us
-        sender_jid = message.from
-        plugins = Robut::Plugin.plugins.map { |p| p.new(self, sender_jid) }
-        handle_message(plugins, time, self.roster[sender_jid].iname, message.body)
+        time = Time.now
+        
+        if message_is_after_startup_time?(time)
+          sender_jid = message.from
+          plugins = Robut::Plugin.plugins.map { |p| p.new(self, sender_jid) }
+          handle_message(plugins, time, self.roster[sender_jid].iname, message.body)
+        end
+        
         true
       else
         false
@@ -172,5 +188,9 @@ class Robut::Connection
   def find_jid_by_name(name)
     name = name.downcase
     roster.items.detect {|jid, item| item.iname.downcase == name}.first
+  end
+  
+  def message_is_after_startup_time?(time)
+    time > (Robut::Connection.connection_start_time + INITIAL_WARMUP_TIME)
   end
 end
