@@ -61,22 +61,23 @@ class Robut::Plugin::Rdio
   # will queue the first search result matching 'search query' into
   # the web player. It can be an artist, album, or song.
   def handle(time, sender_nick, message)
+    ::Rdio.init(self.class.key, self.class.secret)
     words = words(message)
     
     if sent_to_me?(message)
       
-      if words.first == 'play' and words.length > 1
+      if words.join(' ') =~ /^(play)?\s?(result)?\s?\d/
+        play_result(words.last.to_i)
+      elsif words.first == 'play' and words.length > 1
         results = search(words)
         result = results.first
         if result
-          Server.queue << result.key
-          name = result.name
-          name = "#{result.artist_name} - #{name}" if result.respond_to?(:artist_name) && result.artist_name
-          reply("Playing #{name}")
+          queue(result)
         else
           reply("I couldn't find #{words.join(" ")} on Rdio.")
         end
-        
+      elsif words.first == 'find' and words.length > 1
+        find(words)
       else words.first =~ /play|(?:un)?pause|next|restart|back|clear/
         Server.command << words.first
       end
@@ -85,6 +86,48 @@ class Robut::Plugin::Rdio
   end
 
   private
+  RESULT_DISPLAYER = {
+    ::Rdio::Album => lambda{|album| "#{album.artist.name} - #{album.name}"},
+    ::Rdio::Track => lambda{|track| "#{track.artist.name} - #{track.album.name} - #{track.name}"}
+  }
+
+  def find(query)
+    reply("Searching for: #{query[1..-1].join(' ')}...")
+    @@results = search(query)
+
+    result_display = ""
+    @@results.each_with_index do |result, index|
+      result_display += format_result(result, index) + "\n"
+    end
+
+    reply(result_display)
+  end
+
+  def play_result(number)
+    if @@results.nil? || @@results.empty?
+      reply("I don't have any search results") and return
+    end
+
+    if @@results[number].nil?
+      reply("I don't have that result") and return
+    end
+
+    queue @@results[number]
+  end
+
+  def queue(result)
+    Server.queue << result.key
+    name = result.name
+    name = "#{result.artist_name} - #{name}" if result.respond_to?(:artist_name) && result.artist_name
+    reply("Queuing: #{name}")
+  end
+
+  def format_result(search_result, index)
+    response = RESULT_DISPLAYER[search_result.class].call(search_result)
+    puts response
+    "#{index}: #{response}"
+  end
+
 
   # Searches Rdio for sources matching +words+. If the first word is
   # 'track', it only searches tracks, same for 'album'. Otherwise,
