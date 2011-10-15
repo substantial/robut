@@ -65,7 +65,7 @@ class Robut::Plugin::Rdio
     words = words(message)
     
     if sent_to_me?(message)
-      
+      puts message.inspect
       if words.join(' ') =~ /^(play)?\s?(result)?\s?\d/
         play_result(words.last.to_i)
       elsif words.first == 'play' and words.length > 1
@@ -76,8 +76,8 @@ class Robut::Plugin::Rdio
         else
           reply("I couldn't find #{words.join(" ")} on Rdio.")
         end
-      elsif words.first == 'find' and words.length > 1
-        find(words)
+      elsif words.join(' ') =~ /(find|do you have(\sany)?)\s?(.+[^?])\?/ 
+        find(['',Regexp.last_match[-1]])
       else words.first =~ /play|(?:un)?pause|next|restart|back|clear/
         Server.command << words.first
       end
