@@ -76,7 +76,7 @@ class Robut::Plugin::Rdio
         else
           reply("I couldn't find #{words.join(" ")} on Rdio.")
         end
-      elsif words.join(' ') =~ /(find|do you have(\sany)?)\s?(.+[^?])\?/ 
+      elsif words.join(' ') =~ /(find|do you have(\sany)?)\s?(.+[^?])\??/ 
         find(['',Regexp.last_match[-1]])
       else words.first =~ /play|(?:un)?pause|next|restart|back|clear/
         Server.command << words.first
